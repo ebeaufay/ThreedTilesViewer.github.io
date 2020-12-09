@@ -9896,7 +9896,15 @@ var tileset = new _tileset__WEBPACK_IMPORTED_MODULE_2__["Tileset"]("aya/tileset.
 tileset.setLoadAroundView(true);
 setInterval(function () {
   tileset.update();
-}, 500);
+}, 500); /////// options
+
+var loadOutsideFrustum = document.getElementById("loadOutsideFrustum");
+
+if (loadOutsideFrustum.addEventListener) {
+  loadOutsideFrustum.addEventListener("change", function (event) {
+    if (!!loadOutsideFrustum.checked) tileset.setLoadAroundView(true);else tileset.setLoadAroundView(false);
+  }, false);
+}
 
 /***/ }),
 
