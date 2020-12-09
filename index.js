@@ -9904,6 +9904,14 @@ if (loadOutsideFrustum.addEventListener) {
   }, false);
 }
 
+var geometricErrorMultiplier = document.getElementById("GEM_range");
+
+if (geometricErrorMultiplier.addEventListener) {
+  geometricErrorMultiplier.addEventListener("change", function (event) {
+    tileset.setGeometricErrorMultiplier(geometricErrorMultiplier.value / 100);
+  }, false);
+}
+
 /***/ }),
 
 /***/ "./src/loader/loader.js":
