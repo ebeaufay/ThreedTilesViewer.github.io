@@ -9745,7 +9745,6 @@ function Cache(maxSize, loadFunction) {
 
         return result;
       })["catch"](function (error) {
-        console.log(key);
         throw error;
       });
     } else {
@@ -9858,24 +9857,24 @@ __webpack_require__.r(__webpack_exports__);
 
 
 var scene = new three__WEBPACK_IMPORTED_MODULE_0__["Scene"]();
-scene.background = new three__WEBPACK_IMPORTED_MODULE_0__["Color"](0x283831);
+scene.background = new three__WEBPACK_IMPORTED_MODULE_0__["Color"](0x283860);
 var light = new three__WEBPACK_IMPORTED_MODULE_0__["AmbientLight"](0xeeeeee, 1); // soft white light
 
 scene.add(light); // build camera
 
 var camera = new three__WEBPACK_IMPORTED_MODULE_0__["PerspectiveCamera"](75, window.innerWidth / window.innerHeight, 1, 10000);
-camera.position.x = 2500;
-camera.position.y = 2500;
-camera.position.z = 3000;
+camera.position.x = 2000;
+camera.position.y = 2000;
+camera.position.z = 2400;
 var renderer = new three__WEBPACK_IMPORTED_MODULE_0__["WebGLRenderer"]();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement); // controls
 
-var controls = new three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_1__["OrbitControls"](camera, renderer.domElement); //controls.maxPolarAngle = Math.PI * 0.5;
-
+var controls = new three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_1__["OrbitControls"](camera, renderer.domElement);
 controls.minDistance = 1;
 controls.maxDistance = 5000;
-controls.target.y = 1000; // handle resize
+controls.target.y = 1000;
+controls.update(); // handle resize
 
 window.addEventListener('resize', onWindowResize, false);
 
@@ -9892,11 +9891,10 @@ function animate() {
 }
 
 animate();
-var tileset = new _tileset__WEBPACK_IMPORTED_MODULE_2__["Tileset"]("aya/tileset.json", scene, camera, 1.0);
-tileset.setLoadAroundView(true);
+var tileset = new _tileset__WEBPACK_IMPORTED_MODULE_2__["Tileset"]("http://127.0.0.1:8080/tileset.json", scene, camera, 1.0);
 setInterval(function () {
   tileset.update();
-}, 500); /////// options
+}, 100); /////// options
 
 var loadOutsideFrustum = document.getElementById("loadOutsideFrustum");
 
@@ -10091,7 +10089,7 @@ function Tile() {
 
       if (self.children.length > 0 && distToVolume < self.geometricError) {
         self.children.forEach(function (child) {
-          return tilePromises.push(child.getTilesInView(frustum, cameraPosition, errorCoefficient));
+          return tilePromises.push(child.getTilesInView(frustum, cameraPosition, errorCoefficient, loadAroundView));
         });
       }
     } else if (!!loadAroundView) {
@@ -10222,8 +10220,7 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-console.log(navigator.deviceMemory);
-var cache = new _cache_cache__WEBPACK_IMPORTED_MODULE_0__["Cache"](8e8, _loader_loader__WEBPACK_IMPORTED_MODULE_1__["loader"]);
+var cache = new _cache_cache__WEBPACK_IMPORTED_MODULE_0__["Cache"](navigator.deviceMemory / 10 * 8e9, _loader_loader__WEBPACK_IMPORTED_MODULE_1__["loader"]);
 
 function Tileset(url, scene, camera, geometricErrorMultiplier) {
   var self = this;
@@ -10234,7 +10231,6 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
   this.currentlyRenderedTiles = {};
   this.futureActionOnTiles = {};
   this.loadAroundView = false;
-  this.cancelCurrentUpdate;
   Object(_loader_loader__WEBPACK_IMPORTED_MODULE_1__["loader"])(url).then(function (rootTile) {
     self.rootTile = rootTile;
     update();
@@ -10245,8 +10241,6 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
   }
 
   function deleteFromCurrentScene() {
-    self.cancelCurrentUpdate();
-
     if (!!self.scene) {
       self.currentlyRenderedTiles.values().forEach(function (element) {
         self.scene.remove(element.scene);
@@ -10267,68 +10261,74 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
   }
 
   function update() {
-    if (!!self.controller) {
-      self.controller.abort();
-    }
-
-    var controller = new AbortController();
-    self.controller = controller;
-    var frustum = new three__WEBPACK_IMPORTED_MODULE_2__["Frustum"]();
-    self.camera.updateMatrix();
-    self.camera.updateMatrixWorld();
-    var projScreenMatrix = new three__WEBPACK_IMPORTED_MODULE_2__["Matrix4"]();
-    projScreenMatrix.multiplyMatrices(self.camera.projectionMatrix, self.camera.matrixWorldInverse);
-    frustum.setFromProjectionMatrix(new three__WEBPACK_IMPORTED_MODULE_2__["Matrix4"]().multiplyMatrices(self.camera.projectionMatrix, self.camera.matrixWorldInverse));
-
     if (!self.rootTile) {
       return;
     }
 
+    var frustum = new three__WEBPACK_IMPORTED_MODULE_2__["Frustum"]();
+    var projScreenMatrix = new three__WEBPACK_IMPORTED_MODULE_2__["Matrix4"]();
+    projScreenMatrix.multiplyMatrices(self.camera.projectionMatrix, self.camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(new three__WEBPACK_IMPORTED_MODULE_2__["Matrix4"]().multiplyMatrices(self.camera.projectionMatrix, self.camera.matrixWorldInverse));
     self.rootTile.getTilesInView(frustum, camera.position, self.geometricErrorMultiplier, self.loadAroundView).then(function (tiles) {
-      var newTilesContent = tiles.map(function (tile) {
-        return tile.content;
-      });
-      var toDelete = [];
-      Object.keys(self.currentlyRenderedTiles).forEach(function (current) {
-        if (!newTilesContent.includes(current)) {
-          self.futureActionOnTiles[current] = "toDelete";
-          toDelete.push(current);
+      if (tiles.length > 0) {
+        if (!!self.controller) {
+          self.controller.abort();
         }
-      });
-      var contentRequests = [];
-      newTilesContent.forEach(function (content) {
-        if (!self.currentlyRenderedTiles[content] && self.futureActionOnTiles[content] !== "toUpdate") {
-          self.futureActionOnTiles[content] = "toUpdate";
-          contentRequests.push(cache.get(content
-          /*, controller.signal*/
-          ).then(function (gltf) {
-            if (!!gltf) {
-              if (self.futureActionOnTiles[content] === "toUpdate") {
-                self.scene.add(gltf.model.scene);
-                self.currentlyRenderedTiles[content] = gltf.model;
-                delete self.futureActionOnTiles[content];
+
+        var controller = new AbortController();
+        self.controller = controller;
+        self.camera.updateMatrix();
+        self.camera.updateMatrixWorld();
+        var newTilesContent = tiles.map(function (tile) {
+          return tile.content;
+        });
+        var toDelete = [];
+        Object.keys(self.currentlyRenderedTiles).forEach(function (current) {
+          if (!newTilesContent.includes(current)) {
+            self.futureActionOnTiles[current] = "toDelete";
+            toDelete.push(current);
+          }
+        });
+        var contentRequests = [];
+        newTilesContent.forEach(function (content) {
+          if (!self.currentlyRenderedTiles[content] && self.futureActionOnTiles[content] !== "toUpdate") {
+            self.futureActionOnTiles[content] = "toUpdate";
+            contentRequests.push(cache.get(content
+            /*, controller.signal*/
+            ).then(function (gltf) {
+              if (!!gltf) {
+                if (self.futureActionOnTiles[content] === "toUpdate") {
+                  self.scene.add(gltf.model.scene);
+                  self.currentlyRenderedTiles[content] = gltf.model;
+                  delete self.futureActionOnTiles[content];
+                }
               }
+            })["catch"](function (error) {
+              console.error(error);
+            }));
+          } else if (!!self.futureActionOnTiles[content]) {
+            delete self.futureActionOnTiles[content];
+          }
+        });
+
+        if (contentRequests.length > 0) {
+          Promise.all(contentRequests)["catch"](function (error) {
+            console.log(error);
+          })["finally"](function () {
+            if (!controller.signal.aborted) {
+              toDelete.forEach(function (url) {
+                setTimeout(function () {
+                  if (self.futureActionOnTiles[url] === "toDelete") {
+                    self.scene.remove(self.currentlyRenderedTiles[url].scene);
+                    delete self.currentlyRenderedTiles[url];
+                    delete self.futureActionOnTiles[url];
+                  }
+                }, 0);
+              });
             }
-          })["catch"](function (error) {
-            console.error(error);
-          }));
-        } else if (!!self.futureActionOnTiles[content]) {
-          delete self.futureActionOnTiles[content];
-        }
-      });
-      Promise.all(contentRequests)["finally"](function () {
-        if (!controller.signal.aborted) {
-          toDelete.forEach(function (url) {
-            setTimeout(function () {
-              if (self.futureActionOnTiles[url] === "toDelete") {
-                self.scene.remove(self.currentlyRenderedTiles[url].scene);
-                delete self.currentlyRenderedTiles[url];
-                delete self.futureActionOnTiles[url];
-              }
-            }, 0);
           });
         }
-      });
+      }
     });
   }
 
