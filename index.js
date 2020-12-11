@@ -8304,6 +8304,7 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
     }
 
     self.currentlyRenderedTiles = {};
+    self.scene = null;
   }
 
   function setScene(scene) {
@@ -8317,7 +8318,7 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
   }
 
   function update() {
-    if (!self.rootTile) {
+    if (!self.rootTile || !self.scene) {
       return;
     }
 
@@ -8328,7 +8329,7 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
     projScreenMatrix.multiplyMatrices(self.camera.projectionMatrix, self.camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(new three__WEBPACK_IMPORTED_MODULE_2__["Matrix4"]().multiplyMatrices(self.camera.projectionMatrix, self.camera.matrixWorldInverse));
     self.rootTile.getTilesInView(frustum, camera.position, self.geometricErrorMultiplier, self.loadAroundView).then(function (tiles) {
-      if (tiles.length > 0) {
+      if (tiles.length > 0 && !!self.scene) {
         var newTilesContent = tiles.map(function (tile) {
           return tile.content;
         });
@@ -8347,7 +8348,7 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
               contentRequests.push(cache.get(content
               /*, controller.signal*/
               ).then(function (gltf) {
-                if (!!gltf) {
+                if (!!gltf && !!self.scene) {
                   if (self.futureActionOnTiles[content] === "toUpdate") {
                     self.scene.add(gltf.model.scene);
                     self.currentlyRenderedTiles[content] = gltf.model;
@@ -8375,7 +8376,7 @@ function Tileset(url, scene, camera, geometricErrorMultiplier) {
           Promise.all(contentRequests)["catch"](function (error) {
             console.log(error);
           })["finally"](function () {
-            if (!controller.signal.aborted) {
+            if (!controller.signal.aborted && !!self.scene) {
               toDelete.forEach(function (url) {
                 setTimeout(function () {
                   if (self.futureActionOnTiles[url] === "toDelete") {
