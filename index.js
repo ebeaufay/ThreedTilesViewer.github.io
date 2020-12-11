@@ -7859,18 +7859,11 @@ var light = new three__WEBPACK_IMPORTED_MODULE_0__["AmbientLight"](0xeeeeee, 1);
 scene.add(light); // build camera
 
 var camera = new three__WEBPACK_IMPORTED_MODULE_0__["PerspectiveCamera"](75, window.innerWidth / window.innerHeight, 1, 10000);
-camera.position.x = 2000;
-camera.position.y = 2000;
-camera.position.z = 2400;
 var renderer = new three__WEBPACK_IMPORTED_MODULE_0__["WebGLRenderer"]();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement); // controls
 
-var controls = new three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_1__["OrbitControls"](camera, renderer.domElement);
-controls.minDistance = 1;
-controls.maxDistance = 5000; //controls.target.y = 1000;
-
-controls.update(); // handle resize
+var controls = new three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_1__["OrbitControls"](camera, renderer.domElement); // handle resize
 
 window.addEventListener('resize', onWindowResize, false);
 
@@ -7931,11 +7924,29 @@ if (modelDropDown.addEventListener) {
 function setVillageModel() {
   if (!!tileset) tileset.deleteFromCurrentScene();
   tileset = new _tileset__WEBPACK_IMPORTED_MODULE_2__["Tileset"]("frenchVillage/tileset.json", scene, camera);
+  camera.position.x = 0;
+  camera.position.y = 0;
+  camera.position.z = 100;
+  controls.minDistance = 1;
+  controls.maxDistance = 1000;
+  controls.target.x = 0;
+  controls.target.y = 0;
+  controls.target.z = -25;
+  controls.update();
 }
 
 function setAyaModel() {
   if (!!tileset) tileset.deleteFromCurrentScene();
   tileset = new _tileset__WEBPACK_IMPORTED_MODULE_2__["Tileset"]("aya/tileset.json", scene, camera);
+  camera.position.x = 2000;
+  camera.position.y = 2000;
+  camera.position.z = 2400;
+  controls.minDistance = 1;
+  controls.maxDistance = 5000;
+  controls.target.x = 0;
+  controls.target.y = 1000;
+  controls.target.z = 0;
+  controls.update();
 }
 
 /***/ }),
