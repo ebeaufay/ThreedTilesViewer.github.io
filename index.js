@@ -7574,7 +7574,8 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
    *   geometricErrorMultiplier: Double,
    *   loadOutsideView: Boolean,
    *   tileLoader : TileLoader,
-   *   stats: TilesetStats
+   *   stats: TilesetStats,
+   *   meshCallback: function
    * } properties 
    */
   function OGC3DTile(properties) {
@@ -7591,10 +7592,10 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
     if (!!properties.tileLoader) {
       _this.tileLoader = properties.tileLoader;
     } else {
-      _this.tileLoader = new _TileLoader__WEBPACK_IMPORTED_MODULE_1__.TileLoader(function (mesh) {
+      _this.tileLoader = new _TileLoader__WEBPACK_IMPORTED_MODULE_1__.TileLoader(!properties.meshCallback ? function (mesh) {
         mesh.material.wireframe = false;
         mesh.material.side = three__WEBPACK_IMPORTED_MODULE_3__.DoubleSide;
-      });
+      } : properties.meshCallback);
     } // set properties general to the entire tileset
 
 
@@ -7604,6 +7605,7 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
       // Automatic geometric error multiplier
       _this.stats = properties.stats;
       (0,set_interval_async_dynamic__WEBPACK_IMPORTED_MODULE_2__.setIntervalAsync)(function () {
+        if (!!document.hidden) return;
         var framerate = self.stats.fps();
         if (framerate < 0) return;
 
@@ -7613,7 +7615,7 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
           self.setGeometricErrorMultiplier(self.geometricErrorMultiplier + 0.05);
         }
 
-        self.setGeometricErrorMultiplier(self.geometricErrorMultiplier * (self.stats.fps() / 60));
+        console.log(self.geometricErrorMultiplier);
       }, 1000);
     }
 
