@@ -7574,8 +7574,9 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
    *   geometricErrorMultiplier: Double,
    *   loadOutsideView: Boolean,
    *   tileLoader : TileLoader,
-   *   stats: TilesetStats,
-   *   meshCallback: function
+   *   meshCallback: function,
+   *   cameraOnLoad: camera,
+   *   parentTile: OGC3DTile
    * } properties 
    */
   function OGC3DTile(properties) {
@@ -7600,27 +7601,10 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
 
 
     _this.geometricErrorMultiplier = !!properties.geometricErrorMultiplier ? properties.geometricErrorMultiplier : 1.0;
-
-    if (properties.stats) {
-      // Automatic geometric error multiplier
-      _this.stats = properties.stats;
-      (0,set_interval_async_dynamic__WEBPACK_IMPORTED_MODULE_2__.setIntervalAsync)(function () {
-        if (!!document.hidden) return;
-        var framerate = self.stats.fps();
-        if (framerate < 0) return;
-
-        if (framerate < 58) {
-          self.setGeometricErrorMultiplier(Math.max(0.05, self.geometricErrorMultiplier - 0.05));
-        } else if (framerate > 58) {
-          self.setGeometricErrorMultiplier(self.geometricErrorMultiplier + 0.05);
-        }
-
-        console.log(self.geometricErrorMultiplier);
-      }, 1000);
-    }
-
     _this.meshCallback = properties.meshCallback;
-    _this.loadOutsideView = properties.loadOutsideView; // declare properties specific to the tile for clarity
+    _this.loadOutsideView = properties.loadOutsideView;
+    _this.cameraOnLoad = properties.cameraOnLoad;
+    _this.parentTile = properties.parentTile; // declare properties specific to the tile for clarity
 
     _this.childrenTiles = [];
     _this.meshContent;
@@ -7764,26 +7748,39 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
               });
               self.add(mesh);
               self.meshContent = mesh;
-            });
+            }, !self.cameraOnLoad ? function () {
+              return 0;
+            } : function () {
+              return self.calculateDistanceToCamera(self.cameraOnLoad);
+            }, function () {
+              return self.getSiblings();
+            }, self.level, self.uuid);
           } else if (url.includes(".json")) {
-            self.controller = new AbortController();
-            fetch(url, {
-              signal: self.controller.signal
-            }).then(function (result) {
-              if (!result.ok) {
-                throw new Error("couldn't load \"".concat(properties.url, "\". Request failed with status ").concat(result.status, " : ").concat(result.statusText));
-              }
-
-              result.json().then(function (json) {
-                // when json content is downloaded, it is inserted into this tile's original JSON as a child
-                // and the content object is deleted from the original JSON
-                if (!self.json.children) self.json.children = [];
-                json.rootPath = path.dirname(url);
-                self.json.children.push(json);
-                delete self.json.content;
-                self.hasUnloadedJSONContent = false;
-              })["catch"](function (error) {});
-            })["catch"](function (error) {});
+            self.tileLoader.get(this.uuid, url, function (json) {
+              if (!!self.deleted) return;
+              if (!self.json.children) self.json.children = [];
+              json.rootPath = path.dirname(url);
+              self.json.children.push(json);
+              delete self.json.content;
+              self.hasUnloadedJSONContent = false;
+            });
+            /* self.controller = new AbortController();
+            setTimeout(() => {
+                fetch(url, { signal: self.controller.signal }).then(result => {
+                    if (!result.ok) {
+                        throw new Error(`couldn't load "${properties.url}". Request failed with status ${result.status} : ${result.statusText}`);
+                    }
+                    result.json().then(json => {
+                        // when json content is downloaded, it is inserted into this tile's original JSON as a child
+                        // and the content object is deleted from the original JSON
+                        if (!self.json.children) self.json.children = [];
+                        json.rootPath = path.dirname(url);
+                        self.json.children.push(json);
+                        delete self.json.content;
+                        self.hasUnloadedJSONContent = false;
+                    }).catch(error => { });
+                }).catch(error => { });
+            }, 0); */
           }
         }
       }
@@ -7804,6 +7801,7 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
         }
       });
       this.parent = null;
+      this.parentTile = null;
       this.dispatchEvent({
         type: 'removed'
       });
@@ -7922,6 +7920,7 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
       function loadJsonChildren() {
         self.json.children.forEach(function (childJSON) {
           var childTile = new OGC3DTile({
+            parentTile: self,
             parentGeometricError: self.geometricError,
             parentBoundingVolume: self.boundingVolume,
             parentRefinement: self.refinement,
@@ -7930,7 +7929,8 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
             geometricErrorMultiplier: self.geometricErrorMultiplier,
             loadOutsideView: self.loadOutsideView,
             level: self.level + 1,
-            tileLoader: self.tileLoader
+            tileLoader: self.tileLoader,
+            cameraOnLoad: camera
           });
           self.childrenTiles.push(childTile);
           self.add(childTile);
@@ -8063,6 +8063,48 @@ var OGC3DTile = /*#__PURE__*/function (_THREE$Object3D) {
       }
     }
   }, {
+    key: "getSiblings",
+    value: function getSiblings() {
+      var self = this;
+      var tiles = [];
+      if (!self.parentTile) return tiles;
+      var p = self.parentTile;
+
+      while (!p.hasMeshContent && !!p.parentTile) {
+        p = p.parentTile;
+      }
+
+      p.childrenTiles.forEach(function (child) {
+        if (!!child && child != self) {
+          while (!child.hasMeshContent && !!child.childrenTiles[0]) {
+            child = child.childrenTiles[0];
+          }
+
+          tiles.push(child);
+        }
+      });
+      return tiles;
+    }
+  }, {
+    key: "calculateDistanceToCamera",
+    value: function calculateDistanceToCamera(camera) {
+      if (this.boundingVolume instanceof _geometry_obb__WEBPACK_IMPORTED_MODULE_0__.OBB) {
+        // box
+        tempSphere.copy(this.boundingVolume.sphere);
+        tempSphere.applyMatrix4(this.matrixWorld); //if (!frustum.intersectsSphere(tempSphere)) return -1;
+      } else if (this.boundingVolume instanceof three__WEBPACK_IMPORTED_MODULE_3__.Sphere) {
+        //sphere
+        tempSphere.copy(this.boundingVolume);
+        tempSphere.applyMatrix4(this.matrixWorld); //if (!frustum.intersectsSphere(tempSphere)) return -1;
+      }
+
+      if (this.boundingVolume instanceof three__WEBPACK_IMPORTED_MODULE_3__.Box3) {
+        return -1; // region not supported
+      }
+
+      return Math.max(0, camera.position.distanceTo(tempSphere.center) - tempSphere.radius);
+    }
+  }, {
     key: "setGeometricErrorMultiplier",
     value: function setGeometricErrorMultiplier(geometricErrorMultiplier) {
       this.geometricErrorMultiplier = geometricErrorMultiplier;
@@ -8100,87 +8142,183 @@ function _defineProperties(target, props) { for (var i = 0; i < props.length; i+
 
 function _createClass(Constructor, protoProps, staticProps) { if (protoProps) _defineProperties(Constructor.prototype, protoProps); if (staticProps) _defineProperties(Constructor, staticProps); return Constructor; }
 
-function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
-
 
 
 
 var ready = [];
 var downloads = [];
+var nextReady = [];
+var nextDownloads = [];
 
 function scheduleDownload(f) {
   downloads.unshift(f);
 }
 
 function download() {
-  if (downloads.length <= 0) return;
-  var nextDownload = downloads.shift();
+  if (nextDownloads.length == 0) {
+    getNextDownloads();
+    if (nextDownloads.length == 0) return 0;
+  }
+
+  var nextDownload = nextDownloads.shift();
 
   if (!!nextDownload && nextDownload.shouldDoDownload()) {
     nextDownload.doDownload();
   }
+
+  return 1;
 }
 
-function meshReceived(cache, register, key) {
-  ready.unshift([cache, register, key]);
+function meshReceived(cache, register, key, distanceFunction, getSiblings, level, uuid) {
+  ready.unshift([cache, register, key, distanceFunction, getSiblings, level, uuid]);
 }
 
 function loadBatch() {
-  var _loop = function _loop(i) {
-    var data = ready.shift();
-    if (!data) return {
-      v: void 0
-    };
-    var cache = data[0];
-    var register = data[1];
-    var key = data[2];
-    var mesh = cache.get(key);
+  if (nextReady.length == 0) {
+    getNextReady();
+    if (nextReady.length == 0) return 0;
+  }
 
-    if (!!mesh) {
-      Object.keys(register[key]).forEach(function (tile) {
-        var callback = register[key][tile];
+  var data = nextReady.shift();
+  if (!data) return 0;
+  var cache = data[0];
+  var register = data[1];
+  var key = data[2];
+  var mesh = cache.get(key);
 
-        if (!!callback) {
-          callback(mesh);
-          register[key][tile] = null;
-        }
-      });
+  if (!!mesh && !!register[key]) {
+    Object.keys(register[key]).forEach(function (tile) {
+      var callback = register[key][tile];
+
+      if (!!callback) {
+        callback(mesh);
+        register[key][tile] = null;
+      }
+    });
+  }
+
+  return 1;
+}
+
+function getNextDownloads() {
+  var smallestLevel = Number.MAX_VALUE;
+  var smallestDistance = Number.MAX_VALUE;
+  var closest = -1;
+
+  for (var i = downloads.length - 1; i >= 0; i--) {
+    if (!downloads[i].shouldDoDownload()) {
+      downloads.splice(i, 1);
+      continue;
     }
-  };
 
-  for (var i = 0; i < 1; i++) {
-    var _ret = _loop(i);
+    if (!downloads[i].distanceFunction) {
+      // if no distance function, must be a json, give absolute priority!
+      nextDownloads.push(downloads.splice(i, 1)[0]);
+    }
+  }
 
-    if (_typeof(_ret) === "object") return _ret.v;
+  if (nextDownloads.length > 0) return;
+
+  for (var _i = downloads.length - 1; _i >= 0; _i--) {
+    var dist = downloads[_i].distanceFunction();
+
+    if (dist < smallestDistance) {
+      smallestDistance = dist;
+      closest = _i;
+    } else if (dist == smallestDistance && downloads[_i].level < smallestLevel) {
+      smallestLevel = downloads[_i].level;
+      closest = _i;
+    }
+  }
+
+  if (closest >= 0) {
+    var closestItem = downloads.splice(closest, 1).pop();
+    nextDownloads.push(closestItem);
+    var siblings = closestItem.getSiblings();
+
+    for (var _i2 = downloads.length - 1; _i2 >= 0; _i2--) {
+      if (siblings.includes(downloads[_i2].uuid)) {
+        nextDownloads.push(downloads.splice(_i2, 1).pop());
+      }
+    }
+  }
+}
+
+function getNextReady() {
+  var smallestLevel = Number.MAX_VALUE;
+  var smallestDistance = Number.MAX_VALUE;
+  var closest = -1;
+
+  for (var i = ready.length - 1; i >= 0; i--) {
+    if (!ready[i][3]) {
+      // if no distance function, must be a json, give absolute priority!
+      nextReady.push(ready.splice(i, 1)[0]);
+    }
+  }
+
+  if (nextReady.length > 0) return;
+
+  for (var _i3 = ready.length - 1; _i3 >= 0; _i3--) {
+    var dist = ready[_i3][3]();
+
+    if (dist < smallestDistance) {
+      smallestDistance = dist;
+      smallestLevel = ready[_i3][5];
+      closest = _i3;
+    } else if (dist == smallestDistance && ready[_i3][5] < smallestLevel) {
+      smallestLevel = ready[_i3][5];
+      closest = _i3;
+    }
+  }
+
+  if (closest >= 0) {
+    var closestItem = ready.splice(closest, 1).pop();
+    nextReady.push(closestItem);
+    var siblings = closestItem[4]();
+
+    for (var _i4 = ready.length - 1; _i4 >= 0; _i4--) {
+      if (siblings.includes(ready[_i4][6])) {
+        nextready.push(ready.splice(_i4, 1).pop());
+      }
+    }
   }
 }
 
 (0,set_interval_async_dynamic__WEBPACK_IMPORTED_MODULE_2__.setIntervalAsync)(function () {
-  loadBatch();
+  var start = Date.now();
+  var uploaded = 0;
+
+  do {
+    uploaded = download();
+  } while (uploaded > 0 && Date.now() - start <= 2);
 }, 10);
 (0,set_interval_async_dynamic__WEBPACK_IMPORTED_MODULE_2__.setIntervalAsync)(function () {
-  download();
+  var start = Date.now();
+  var loaded = 0;
+
+  do {
+    loaded = loadBatch();
+  } while (loaded > 0 && Date.now() - start <= 2);
 }, 10);
 
 var TileLoader = /*#__PURE__*/function () {
-  function TileLoader(meshCallback, stats) {
+  function TileLoader(meshCallback, maxCachedItems) {
     _classCallCheck(this, TileLoader);
 
     this.meshCallback = meshCallback;
     this.cache = new js_utils_z__WEBPACK_IMPORTED_MODULE_0__.LinkedHashMap();
-    this.maxSize = 1000;
-    this.stats = stats;
+    this.maxCachedItems = !!maxCachedItems ? maxCachedItems : 1000;
     this.register = {};
   }
 
   _createClass(TileLoader, [{
     key: "get",
-    value: function get(tileIdentifier, path, callback) {
+    value: function get(tileIdentifier, path, callback, distanceFunction, getSiblings, level, uuid) {
       var self = this;
       var key = simplifyPath(path);
 
-      if (!path.includes(".b3dm")) {
-        console.error("the 3DTiles cache can only be used to load B3DM data");
+      if (!path.includes(".b3dm") && !path.includes(".json")) {
+        console.error("the 3DTiles cache can only be used to load B3DM and json data");
         return;
       }
 
@@ -8196,13 +8334,12 @@ var TileLoader = /*#__PURE__*/function () {
       var cachedObject = self.cache.get(key);
 
       if (!!cachedObject) {
-        meshReceived(self.cache, self.register, key);
+        meshReceived(self.cache, self.register, key, distanceFunction, getSiblings, level, uuid);
       } else if (Object.keys(self.register[key]).length == 1) {
-        scheduleDownload({
-          "shouldDoDownload": function shouldDoDownload() {
-            return Object.keys(self.register[key]).length > 0;
-          },
-          "doDownload": function doDownload() {
+        var downloadFunction;
+
+        if (path.includes(".b3dm")) {
+          downloadFunction = function downloadFunction() {
             fetch(path).then(function (result) {
               if (!result.ok) {
                 console.error("could not load tile with path : " + path);
@@ -8214,25 +8351,38 @@ var TileLoader = /*#__PURE__*/function () {
               }).then(function (mesh) {
                 self.cache.put(key, mesh);
                 self.checkSize();
+                meshReceived(self.cache, self.register, key, distanceFunction, getSiblings, level, uuid);
+              });
+            });
+          };
+        } else if (path.includes(".json")) {
+          downloadFunction = function downloadFunction() {
+            fetch(path).then(function (result) {
+              if (!result.ok) {
+                console.error("could not load tile with path : " + path);
+                throw new Error("couldn't load \"".concat(path, "\". Request failed with status ").concat(result.status, " : ").concat(result.statusText));
+              }
+
+              result.json().then(function (json) {
+                self.cache.put(key, json);
+                self.checkSize();
                 meshReceived(self.cache, self.register, key);
               });
             });
-          }
+          };
+        }
+
+        scheduleDownload({
+          "shouldDoDownload": function shouldDoDownload() {
+            return !!self.register[key] && Object.keys(self.register[key]).length > 0;
+          },
+          "doDownload": downloadFunction,
+          "distanceFunction": distanceFunction,
+          "getSiblings": getSiblings,
+          "level": level,
+          "uuid": uuid
         });
       }
-    }
-  }, {
-    key: "meshReceived",
-    value: function meshReceived(key, mesh) {
-      var self = this;
-      Object.keys(self.register[key]).forEach(function (tile) {
-        var callback = self.register[key][tile];
-
-        if (!!callback) {
-          callback(mesh);
-          self.register[key][tile] = null;
-        }
-      });
     }
   }, {
     key: "invalidate",
@@ -8246,45 +8396,36 @@ var TileLoader = /*#__PURE__*/function () {
       var self = this;
       var i = 0;
 
-      function memOverflowCheck() {
-        if (!!self.stats && self.stats.memory() > 0) {
-          if (self.stats.memory() / self.stats.maxMemory() < 0.25) {
-            return false;
-          }
-
-          return true;
-        }
-
-        return self.cache.size() > self.maxSize;
-      }
-
-      while (memOverflowCheck() && i < self.cache.size()) {
+      while (self.cache.size() > self.maxCachedItems && i < self.cache.size()) {
         i++;
         var entry = self.cache.head();
+        var reg = self.register[entry.key];
 
-        if (Object.keys(self.register[entry.key]).length > 0) {
-          self.cache.remove(entry.key);
-          self.cache.put(entry.key, entry.value);
-        } else {
-          self.cache.remove(entry.key);
-          delete self.register[entry.key];
-          entry.value.traverse(function (o) {
-            if (o.material) {
-              // dispose materials
-              if (o.material.length) {
-                for (var _i = 0; _i < o.material.length; ++_i) {
-                  o.material[_i].dispose();
+        if (!!reg) {
+          if (Object.keys(reg).length > 0) {
+            self.cache.remove(entry.key);
+            self.cache.put(entry.key, entry.value);
+          } else {
+            self.cache.remove(entry.key);
+            delete self.register[entry.key];
+            entry.value.traverse(function (o) {
+              if (o.material) {
+                // dispose materials
+                if (o.material.length) {
+                  for (var _i5 = 0; _i5 < o.material.length; ++_i5) {
+                    o.material[_i5].dispose();
+                  }
+                } else {
+                  o.material.dispose();
                 }
-              } else {
-                o.material.dispose();
               }
-            }
 
-            if (o.geometry) {
-              // dispose geometry
-              o.geometry.dispose();
-            }
-          });
+              if (o.geometry) {
+                // dispose geometry
+                o.geometry.dispose();
+              }
+            });
+          }
         }
       }
     }
@@ -8326,70 +8467,6 @@ function simplifyPath(main_path) {
 }
 
 
-
-/***/ }),
-
-/***/ "./src/tileset/TilesetStats.js":
-/*!*************************************!*\
-  !*** ./src/tileset/TilesetStats.js ***!
-  \*************************************/
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-"use strict";
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
-/* harmony export */ });
-var TilesetStats = function TilesetStats() {
-  var beginTime = (performance || Date).now(),
-      prevTime = beginTime,
-      frames = 0;
-
-  var _fps = -1;
-
-  if (self.performance && self.performance.memory) {
-    var mem = -1;
-    var maxMem = -1;
-  }
-
-  return {
-    begin: function begin() {
-      beginTime = (performance || Date).now();
-    },
-    end: function end() {
-      frames++;
-      var time = (performance || Date).now();
-
-      if (time >= prevTime + 1000) {
-        _fps = frames * 1000 / (time - prevTime);
-        prevTime = time;
-        frames = 0;
-
-        if (!!mem) {
-          var memory = performance.memory;
-          mem = memory.usedJSHeapSize;
-          maxMem = memory.jsHeapSizeLimit;
-        }
-      }
-
-      return time;
-    },
-    update: function update() {
-      beginTime = this.end();
-    },
-    fps: function fps() {
-      return _fps;
-    },
-    memory: function memory() {
-      return mem;
-    },
-    maxMemory: function maxMemory() {
-      return maxMem;
-    }
-  };
-};
-
-/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (TilesetStats);
 
 /***/ }),
 
@@ -13246,10 +13323,10 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var regenerator_runtime_runtime_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(regenerator_runtime_runtime_js__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var three__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! three */ "./node_modules/three/build/three.module.js");
 /* harmony import */ var three_examples_jsm_libs_stats_module_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! three/examples/jsm/libs/stats.module.js */ "./node_modules/three/examples/jsm/libs/stats.module.js");
-/* harmony import */ var _tileset_TilesetStats__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./tileset/TilesetStats */ "./src/tileset/TilesetStats.js");
-/* harmony import */ var _tileset_OGC3DTile__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./tileset/OGC3DTile */ "./src/tileset/OGC3DTile.js");
-/* harmony import */ var _tileset_TileLoader__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./tileset/TileLoader */ "./src/tileset/TileLoader.js");
-/* harmony import */ var three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! three/examples/jsm/controls/OrbitControls.js */ "./node_modules/three/examples/jsm/controls/OrbitControls.js");
+/* harmony import */ var _tileset_OGC3DTile__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./tileset/OGC3DTile */ "./src/tileset/OGC3DTile.js");
+/* harmony import */ var _tileset_TileLoader__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./tileset/TileLoader */ "./src/tileset/TileLoader.js");
+/* harmony import */ var three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! three/examples/jsm/controls/OrbitControls.js */ "./node_modules/three/examples/jsm/controls/OrbitControls.js");
+/* harmony import */ var set_interval_async_dynamic__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! set-interval-async/dynamic */ "./node_modules/set-interval-async/dynamic/index.js");
 
 
 
@@ -13258,7 +13335,6 @@ __webpack_require__.r(__webpack_exports__);
 
 
 var scene = initScene();
-var tilesetStats = (0,_tileset_TilesetStats__WEBPACK_IMPORTED_MODULE_2__["default"])();
 var domContainer = initDomContainer("screen");
 var camera = initCamera();
 var ogc3DTiles = initTileset(scene);
@@ -13318,22 +13394,21 @@ function initCamera() {
 }
 
 function initTileset(scene) {
-  var ogc3DTile = new _tileset_OGC3DTile__WEBPACK_IMPORTED_MODULE_3__.OGC3DTile({
-    url: "https://storage.googleapis.com/ogc-3d-tiles/ayutthaya/tileset.json",
-    geometricErrorMultiplier: 1,
+  var ogc3DTile = new _tileset_OGC3DTile__WEBPACK_IMPORTED_MODULE_2__.OGC3DTile({
+    url: "https://storage.googleapis.com/ogc-3d-tiles/ayutthaya/tiledWithSkirts/tileset.json",
+    geometricErrorMultiplier: 1.0,
     loadOutsideView: true,
-    tileLoader: new _tileset_TileLoader__WEBPACK_IMPORTED_MODULE_4__.TileLoader(function (mesh) {
+    tileLoader: new _tileset_TileLoader__WEBPACK_IMPORTED_MODULE_3__.TileLoader(function (mesh) {
       //// Insert code to be called on every newly decoded mesh e.g.:
       mesh.material.wireframe = false;
       mesh.material.side = three__WEBPACK_IMPORTED_MODULE_6__.DoubleSide;
-    }, tilesetStats),
-    stats: tilesetStats
+    }, 1000)
   }); //// The OGC3DTile object is a threejs Object3D so you may do all the usual opperations like transformations e.g.:
   //ogc3DTile.translateOnAxis(new THREE.Vector3(0,1,0), -10)
   //ogc3DTile.translateOnAxis(new THREE.Vector3(1,0,0), -65)
   //ogc3DTile.translateOnAxis(new THREE.Vector3(0,0,1), -80)
   //ogc3DTile.scale.set(0.0001,0.0001,0.0001);
-  // ogc3DTile.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI * 0.5) // Z-UP to Y-UP
+  //ogc3DTile.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI * -0.5) // Z-UP to Y-UP
   // ogc3DTile.translateOnAxis(new THREE.Vector3(1,0,0), -16.5)
   // ogc3DTile.translateOnAxis(new THREE.Vector3(0,1,0), 0)
   // ogc3DTile.translateOnAxis(new THREE.Vector3(0,0,1), -9.5)
@@ -13353,9 +13428,9 @@ function initTileset(scene) {
   });
 
   function startInterval() {
-    interval = setInterval(function () {
+    interval = (0,set_interval_async_dynamic__WEBPACK_IMPORTED_MODULE_5__.setIntervalAsync)(function () {
       ogc3DTile.update(camera);
-    }, 25);
+    }, 20);
   }
 
   startInterval();
@@ -13364,7 +13439,7 @@ function initTileset(scene) {
 }
 
 function initController(camera, dom) {
-  var controller = new three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_5__.OrbitControls(camera, dom);
+  var controller = new three_examples_jsm_controls_OrbitControls_js__WEBPACK_IMPORTED_MODULE_4__.OrbitControls(camera, dom);
   controller.target.set(-11.50895, 0.058452500000001, 3.1369285);
   controller.minDistance = 1;
   controller.maxDistance = 5000;
@@ -13376,7 +13451,6 @@ function animate() {
   requestAnimationFrame(animate);
   camera.updateMatrixWorld();
   renderer.render(scene, camera);
-  tilesetStats.update();
   stats.update();
 }
 })();
